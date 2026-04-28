@@ -34,6 +34,7 @@ public class UserRepository {
 
         try (Connection connection = databaseManager.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql)) {
+            // PreparedStatement 负责参数绑定，避免用户名或密码内容破坏 SQL 结构。
             statement.setString(1, username);
             statement.setBytes(2, hash);
             statement.setBytes(3, salt);

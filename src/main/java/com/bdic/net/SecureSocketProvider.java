@@ -25,10 +25,14 @@ import java.util.Arrays;
  */
 public final class SecureSocketProvider {
 
+    /** classpath 中内置开发证书的位置。 */
     private static final String KEY_STORE_RESOURCE = "/tls/searchable-encryption-dev.p12";
+    /** 开发证书密钥库密码；真实环境应改为安全配置。 */
     private static final char[] KEY_STORE_PASSWORD = "changeit".toCharArray();
+    /** 优先启用的 TLS 协议版本，按安全性从高到低排列。 */
     private static final String[] PREFERRED_PROTOCOLS = {"TLSv1.3", "TLSv1.2"};
 
+    /** 工具类不需要实例化。 */
     private SecureSocketProvider() {
     }
 
@@ -39,6 +43,7 @@ public final class SecureSocketProvider {
         SSLContext context = createServerContext();
         SSLServerSocketFactory factory = context.getServerSocketFactory();
         SSLServerSocket serverSocket = (SSLServerSocket) factory.createServerSocket(port);
+        // 只保留当前 JDK 支持的安全协议，避免意外启用过旧 TLS 版本。
         configureProtocols(serverSocket);
         serverSocket.setNeedClientAuth(false);
         return serverSocket;
@@ -53,9 +58,11 @@ public final class SecureSocketProvider {
         SSLSocket socket = (SSLSocket) factory.createSocket(host, port);
         configureProtocols(socket);
 
+        // 开启主机名校验，让客户端确认证书身份与连接目标匹配。
         SSLParameters parameters = socket.getSSLParameters();
         parameters.setEndpointIdentificationAlgorithm("HTTPS");
         socket.setSSLParameters(parameters);
+        // 主动握手可以把证书或协议问题尽早暴露给调用方。
         socket.startHandshake();
         return socket;
     }
@@ -66,6 +73,7 @@ public final class SecureSocketProvider {
     private static SSLContext createServerContext() throws IOException, GeneralSecurityException {
         KeyStore keyStore = loadKeyStore();
 
+        // 服务端从密钥库中加载私钥，供 TLS 握手阶段证明自己的身份。
         KeyManagerFactory keyManagerFactory = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
         keyManagerFactory.init(keyStore, KEY_STORE_PASSWORD);
 
@@ -80,6 +88,7 @@ public final class SecureSocketProvider {
     private static SSLContext createClientContext() throws IOException, GeneralSecurityException {
         KeyStore trustStore = loadKeyStore();
 
+        // 客户端把同一个开发证书当作信任锚，用于校验服务端证书链。
         TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
         trustManagerFactory.init(trustStore);
 
@@ -109,10 +118,16 @@ public final class SecureSocketProvider {
         socket.setEnabledProtocols(selectSupportedProtocols(socket.getSupportedProtocols()));
     }
 
+    /**
+     * 为服务端 Socket 选择可用的 TLS 协议版本。
+     */
     private static void configureProtocols(SSLServerSocket socket) {
         socket.setEnabledProtocols(selectSupportedProtocols(socket.getSupportedProtocols()));
     }
 
+    /**
+     * 从偏好列表中筛出当前 JDK/平台真正支持的协议。
+     */
     private static String[] selectSupportedProtocols(String[] supportedProtocols) {
         return Arrays.stream(PREFERRED_PROTOCOLS)
                 .filter(protocol -> Arrays.asList(supportedProtocols).contains(protocol))

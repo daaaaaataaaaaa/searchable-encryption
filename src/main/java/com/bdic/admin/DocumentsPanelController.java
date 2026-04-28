@@ -23,24 +23,42 @@ import java.util.stream.Collectors;
  */
 public class DocumentsPanelController {
 
+    /** 主窗口，用于弹窗、文件选择器和重建索引输入框挂靠。 */
     private final JFrame owner;
+    /** 与服务端通信的客户端。 */
     private final DocumentServiceClient serviceClient;
+    /** 本地文档解密、路径处理和索引重建服务。 */
     private final DocumentOperationService operationService;
+    /** 当前用户本地密钥。 */
     private final ClientKeyManager.KeyBundle keyBundle;
+    /** 全局忙碌状态管理器。 */
     private UiBusyStateManager busyStateManager;
 
+    /** 手动输入文档 ID 的操作框。 */
     private JTextField documentActionField;
+    /** 文档摘要表格。 */
     private JTable documentTable;
+    /** 文档表格模型。 */
     private DefaultTableModel documentTableModel;
+    /** 刷新文档列表按钮。 */
     private JButton refreshButton;
+    /** 下载按钮。 */
     private JButton downloadButton;
+    /** 删除按钮。 */
     private JButton deleteButton;
+    /** 重建索引按钮。 */
     private JButton rebuildIndexButton;
+    /** 文档页状态文本。 */
     private JLabel documentsStatusLabel;
+    /** 文档页进度条。 */
     private JProgressBar documentsProgressBar;
 
+    /** 当前表格中每一行对应的文档摘要，顺序与表格行保持一致。 */
     private final List<DocumentSummary> currentDocumentSummaries = new ArrayList<>();
 
+    /**
+     * 创建文档管理页控制器。
+     */
     public DocumentsPanelController(
             JFrame owner,
             DocumentServiceClient serviceClient,
@@ -53,10 +71,14 @@ public class DocumentsPanelController {
         this.keyBundle = keyBundle;
     }
 
+    /**
+     * 创建文档管理页完整 UI。
+     */
     public JPanel createPanel() {
         JPanel documentsPanel = new JPanel(new BorderLayout(10, 10));
         documentsPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
+        // 顶部操作栏提供刷新、按 ID 操作和批量操作入口。
         JPanel topActionsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         refreshButton = new JButton("Refresh List");
         refreshButton.addActionListener(e -> refreshDocuments());
@@ -84,6 +106,7 @@ public class DocumentsPanelController {
 
         documentsPanel.add(UiComponentFactory.createSectionPanel("Document Actions", "Select one or more rows below or enter a Document ID to manage encrypted files.", topActionsPanel), BorderLayout.NORTH);
 
+        // 表格只展示摘要，不直接暴露加密正文。
         documentTableModel = new DefaultTableModel(new Object[]{"Document ID", "File Name", "Type", "Size", "Keywords", "Created At"}, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -97,6 +120,7 @@ public class DocumentsPanelController {
             if (event.getValueIsAdjusting()) {
                 return;
             }
+            // 单选时把 docId 填入操作框，多选时提示已选择数量。
             List<DocumentSummary> selectedDocuments = getSelectedDocumentSummaries();
             if (selectedDocuments.size() == 1) {
                 documentActionField.setText(selectedDocuments.get(0).getDocId());
@@ -123,18 +147,22 @@ public class DocumentsPanelController {
         return documentsPanel;
     }
 
+    /** 注入忙碌状态管理器。 */
     public void setBusyStateManager(UiBusyStateManager busyStateManager) {
         this.busyStateManager = busyStateManager;
     }
 
+    /** 返回文档页状态标签。 */
     public JLabel getStatusLabel() {
         return documentsStatusLabel;
     }
 
+    /** 返回文档页进度条。 */
     public JProgressBar getProgressBar() {
         return documentsProgressBar;
     }
 
+    /** 返回后台任务运行时需要禁用的文档页控件。 */
     public List<JComponent> getBusySensitiveComponents() {
         List<JComponent> components = new ArrayList<>();
         components.add(refreshButton);
@@ -146,11 +174,15 @@ public class DocumentsPanelController {
         return components;
     }
 
+    /**
+     * 从服务端刷新当前用户文档摘要列表。
+     */
     public void refreshDocuments() {
         if (busyStateManager == null || busyStateManager.isBusy()) {
             return;
         }
         busyStateManager.setDocumentsBusy(true, "Refreshing document list...");
+        // 文档列表加载放在后台执行，避免数据库或网络延迟阻塞界面。
         new SwingWorker<DocumentListTaskResult, Void>() {
             @Override
             protected DocumentListTaskResult doInBackground() {
@@ -183,6 +215,9 @@ public class DocumentsPanelController {
         }.execute();
     }
 
+    /**
+     * 调用服务端文档列表接口，并把反序列化结果转换为摘要列表。
+     */
     private List<DocumentSummary> loadDocumentSummaries() throws Exception {
         ServerResponse response = serviceClient.listDocuments();
         if (!response.isSuccess()) {
@@ -194,11 +229,15 @@ public class DocumentsPanelController {
 
         List<DocumentSummary> summaries = new ArrayList<>();
         for (Object rawDocument : rawDocuments) {
+            // 服务端保证列表元素类型为 DocumentSummary，这里做显式转换。
             summaries.add((DocumentSummary) rawDocument);
         }
         return summaries;
     }
 
+    /**
+     * 将文档摘要刷新到表格和本地缓存。
+     */
     private void applyDocumentSummaries(List<DocumentSummary> summaries) {
         clearDocumentTable();
         for (DocumentSummary summary : summaries) {
@@ -214,6 +253,9 @@ public class DocumentsPanelController {
         }
     }
 
+    /**
+     * 根据当前选择执行单文件下载或批量下载。
+     */
     private void downloadDocument() {
         if (busyStateManager == null || busyStateManager.isBusy()) {
             return;
@@ -226,6 +268,7 @@ public class DocumentsPanelController {
             }
 
             if (targetDocIds.size() > 1) {
+                // 多选下载时先让用户选择目标文件夹，每个文件自动避免重名覆盖。
                 String selectedFolder = NativeDialogHelper.chooseFolder("Select Folder to Save Downloaded Files");
                 if (selectedFolder == null || selectedFolder.isBlank()) {
                     return;
@@ -240,6 +283,7 @@ public class DocumentsPanelController {
 
                     @Override
                     protected void process(List<String> chunks) {
+                        // 批量操作过程中显示最新进度。
                         if (!chunks.isEmpty() && busyStateManager != null) {
                             busyStateManager.updateDocumentsStatus(chunks.get(chunks.size() - 1));
                         }
@@ -253,6 +297,7 @@ public class DocumentsPanelController {
                 return;
             }
 
+            // 单文件下载使用系统保存对话框，让用户决定文件名和位置。
             final String docId = targetDocIds.get(0);
             JFileChooser fileChooser = new JFileChooser();
             fileChooser.setSelectedFile(new File(resolveSuggestedFileName(docId)));
@@ -287,6 +332,9 @@ public class DocumentsPanelController {
         }
     }
 
+    /**
+     * 删除一个或多个文档。
+     */
     private void deleteDocument() {
         if (busyStateManager == null || busyStateManager.isBusy()) {
             return;
@@ -298,6 +346,7 @@ public class DocumentsPanelController {
                 return;
             }
 
+            // 删除不可撤销，因此先根据数量显示确认对话框。
             int confirmed = JOptionPane.showConfirmDialog(
                     owner,
                     targetDocIds.size() == 1
@@ -337,6 +386,9 @@ public class DocumentsPanelController {
         }
     }
 
+    /**
+     * 为一个或多个文档重新生成关键词索引。
+     */
     private void rebuildDocumentIndex() {
         if (busyStateManager == null || busyStateManager.isBusy()) {
             return;
@@ -348,6 +400,7 @@ public class DocumentsPanelController {
                 return;
             }
 
+            // 重建索引会覆盖服务端关键词索引，执行前让用户确认。
             int confirmed = JOptionPane.showConfirmDialog(
                     owner,
                     targetDocIds.size() == 1
@@ -387,6 +440,9 @@ public class DocumentsPanelController {
         }
     }
 
+    /**
+     * 按文档 ID 下载完整密文文档。
+     */
     private EncryptedData downloadDocumentById(String docId) throws Exception {
         ServerResponse response = serviceClient.downloadDocument(docId);
         if (!response.isSuccess()) {
@@ -395,16 +451,25 @@ public class DocumentsPanelController {
         return (EncryptedData) response.getData();
     }
 
+    /**
+     * 按文档 ID 删除服务端文档。
+     */
     private ServerResponse deleteDocumentById(String docId) throws Exception {
         return serviceClient.deleteDocument(docId);
     }
 
+    /**
+     * 下载文档、在客户端重建索引，再重新上传覆盖服务端索引。
+     */
     private ServerResponse rebuildDocumentIndexById(String docId) throws Exception {
         EncryptedData data = downloadDocumentById(docId);
         EncryptedData rebuilt = operationService.rebuildIndex(data, keyBundle.desKey(), keyBundle.peksKey(), owner);
         return serviceClient.upload(rebuilt);
     }
 
+    /**
+     * 执行单文档下载：下载密文、客户端解密、写入目标路径。
+     */
     private DocumentOperationTaskResult performSingleDownload(String docId, Path targetPath) {
         try {
             EncryptedData data = downloadDocumentById(docId);
@@ -421,6 +486,9 @@ public class DocumentsPanelController {
         }
     }
 
+    /**
+     * 执行批量下载，单个文件失败不会影响后续文件。
+     */
     private DocumentOperationTaskResult performBatchDownload(List<String> docIds, Path targetDirectory, Consumer<String> statusUpdater) {
         int successCount = 0;
         List<String> failures = new ArrayList<>();
@@ -430,6 +498,7 @@ public class DocumentsPanelController {
             try {
                 EncryptedData data = downloadDocumentById(docId);
                 byte[] decryptedContent = DESUtil.decrypt(data.getEncryptedContent(), keyBundle.desKey());
+                // 文件名冲突时自动追加序号，避免覆盖用户已有文件。
                 Path targetPath = operationService.resolveUniqueChildPath(targetDirectory, operationService.defaultFileName(data));
                 Files.write(targetPath, decryptedContent);
                 successCount++;
@@ -440,6 +509,9 @@ public class DocumentsPanelController {
         return buildBatchOperationResult("Batch Download Result", "Download", successCount, failures, false);
     }
 
+    /**
+     * 执行批量删除。
+     */
     private DocumentOperationTaskResult performDelete(List<String> docIds, Consumer<String> statusUpdater) {
         int successCount = 0;
         List<String> failures = new ArrayList<>();
@@ -466,6 +538,9 @@ public class DocumentsPanelController {
         );
     }
 
+    /**
+     * 执行批量索引重建。
+     */
     private DocumentOperationTaskResult performRebuildIndex(List<String> docIds, Consumer<String> statusUpdater) {
         int successCount = 0;
         List<String> failures = new ArrayList<>();
@@ -492,6 +567,9 @@ public class DocumentsPanelController {
         );
     }
 
+    /**
+     * 汇总批量操作结果，生成统一弹窗内容。
+     */
     private DocumentOperationTaskResult buildBatchOperationResult(
             String title,
             String actionLabel,
@@ -514,6 +592,9 @@ public class DocumentsPanelController {
         );
     }
 
+    /**
+     * 统一收尾下载、删除、重建索引后台任务。
+     */
     private void finishDocumentOperation(SwingWorker<DocumentOperationTaskResult, String> worker, String fallbackError) {
         DocumentOperationTaskResult result;
         try {
@@ -525,6 +606,7 @@ public class DocumentsPanelController {
         if (busyStateManager != null) {
             busyStateManager.setDocumentsBusy(false, " ");
         }
+        // 删除和重建索引成功后需要刷新表格，下载不需要。
         if (result.refreshDocuments()) {
             refreshDocuments();
         }
@@ -536,6 +618,9 @@ public class DocumentsPanelController {
         );
     }
 
+    /**
+     * 根据表格选中行获取对应文档摘要。
+     */
     private List<DocumentSummary> getSelectedDocumentSummaries() {
         List<DocumentSummary> selected = new ArrayList<>();
         if (documentTable == null) {
@@ -549,6 +634,9 @@ public class DocumentsPanelController {
         return selected;
     }
 
+    /**
+     * 解析当前操作目标：优先使用表格选中行，没有选中行时使用手动输入的 docId。
+     */
     private List<String> resolveTargetDocumentIds() {
         List<String> selectedDocIds = getSelectedDocumentSummaries().stream()
                 .map(DocumentSummary::getDocId)
@@ -565,6 +653,9 @@ public class DocumentsPanelController {
         return List.of(docId);
     }
 
+    /**
+     * 为单文件下载推导默认保存文件名。
+     */
     private String resolveSuggestedFileName(String docId) {
         return currentDocumentSummaries.stream()
                 .filter(summary -> docId.equals(summary.getDocId()))
@@ -574,6 +665,9 @@ public class DocumentsPanelController {
                 .orElse(docId);
     }
 
+    /**
+     * 清空表格和本地摘要缓存。
+     */
     private void clearDocumentTable() {
         currentDocumentSummaries.clear();
         if (documentTableModel != null) {
@@ -581,6 +675,9 @@ public class DocumentsPanelController {
         }
     }
 
+    /**
+     * 把字节数格式化为 B/KB/MB 文本。
+     */
     private String formatFileSize(long bytes) {
         if (bytes < 1024) {
             return bytes + " B";
@@ -591,22 +688,39 @@ public class DocumentsPanelController {
         return String.format(Locale.ROOT, "%.1f MB", bytes / 1024.0 / 1024.0);
     }
 
+    /**
+     * 文档列表后台任务结果。
+     *
+     * @param documents 成功加载的文档摘要列表。
+     * @param errorMessage 失败时的错误信息，成功时为 null。
+     */
     private record DocumentListTaskResult(List<DocumentSummary> documents, String errorMessage) {
+        /** 创建成功结果。 */
         private static DocumentListTaskResult success(List<DocumentSummary> documents) {
             return new DocumentListTaskResult(documents, null);
         }
 
+        /** 创建失败结果。 */
         private static DocumentListTaskResult failure(String errorMessage) {
             return new DocumentListTaskResult(List.of(), errorMessage);
         }
     }
 
+    /**
+     * 下载、删除、重建索引等后台操作的统一结果。
+     *
+     * @param title 弹窗标题。
+     * @param message 弹窗内容。
+     * @param messageType JOptionPane 消息类型。
+     * @param refreshDocuments 是否在完成后刷新文档列表。
+     */
     private record DocumentOperationTaskResult(
             String title,
             String message,
             int messageType,
             boolean refreshDocuments
     ) {
+        /** 创建失败结果。 */
         private static DocumentOperationTaskResult error(String message) {
             return new DocumentOperationTaskResult("Document Operation", message, JOptionPane.ERROR_MESSAGE, false);
         }

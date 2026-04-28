@@ -18,12 +18,21 @@ import java.util.Properties;
  */
 public class ClientKeyManager {
 
+    /** 本地密钥文件所在目录，默认位于用户主目录下的隐藏文件夹。 */
     private final Path keyDirectory;
 
+    /**
+     * 使用默认客户端密钥目录构造管理器。
+     *
+     * <p>默认路径放在用户主目录，避免打包或切换工作目录后找不到历史密钥。</p>
+     */
     public ClientKeyManager() {
         this(Paths.get(System.getProperty("user.home"), ".searchable-encryption", "client-keys"));
     }
 
+    /**
+     * 使用指定目录构造管理器，主要便于测试或定制客户端密钥保存位置。
+     */
     public ClientKeyManager(Path keyDirectory) {
         this.keyDirectory = keyDirectory;
     }
@@ -33,6 +42,7 @@ public class ClientKeyManager {
      */
     public KeyBundle loadOrCreate(String username) {
         try {
+            // 先保证目录存在，再把旧项目目录中的密钥迁移进来。
             Files.createDirectories(keyDirectory);
             Path keyFile = keyDirectory.resolve(username + ".properties");
             migrateLegacyKeyFile(username, keyFile);
@@ -40,6 +50,7 @@ public class ClientKeyManager {
                 return load(keyFile);
             }
 
+            // 首次登录的用户会生成一组新密钥，并写入本地文件供后续会话复用。
             SecretKey desKey = DESUtil.generateKey();
             SecretKey peksKey = PEKSUtil.generateKey();
             save(keyFile, desKey, peksKey);
@@ -57,6 +68,7 @@ public class ClientKeyManager {
             return;
         }
 
+        // 旧版本把密钥放在项目目录 client-keys 下；发现后复制到新位置。
         Path legacyDirectory = Paths.get("client-keys");
         Path legacyKeyFile = legacyDirectory.resolve(username + ".properties");
         if (!Files.exists(legacyKeyFile)) {
@@ -76,6 +88,7 @@ public class ClientKeyManager {
             properties.load(inputStream);
         }
 
+        // properties 中保存的是 Base64 文本，加载后恢复为 SecretKey 对象。
         byte[] desBytes = Base64.getDecoder().decode(properties.getProperty("desKey"));
         byte[] peksBytes = Base64.getDecoder().decode(properties.getProperty("peksKey"));
         return new KeyBundle(DESUtil.getKeyFromBytes(desBytes), PEKSUtil.getKeyFromBytes(peksBytes));
@@ -89,6 +102,7 @@ public class ClientKeyManager {
         properties.setProperty("desKey", Base64.getEncoder().encodeToString(desKey.getEncoded()));
         properties.setProperty("peksKey", Base64.getEncoder().encodeToString(peksKey.getEncoded()));
 
+        // 使用 properties 格式便于人工检查，同时避免直接写二进制内容。
         try (OutputStream outputStream = Files.newOutputStream(keyFile)) {
             properties.store(outputStream, null);
         }
@@ -96,6 +110,9 @@ public class ClientKeyManager {
 
     /**
      * 当前用户的一组客户端密钥。
+     *
+     * @param desKey 用于加密和解密文档正文、关键词元数据的 DES 密钥。
+     * @param peksKey 用于生成关键词密文和搜索陷门的搜索密钥。
      */
     public record KeyBundle(SecretKey desKey, SecretKey peksKey) {
     }

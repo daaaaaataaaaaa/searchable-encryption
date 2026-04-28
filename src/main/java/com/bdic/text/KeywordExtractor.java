@@ -8,26 +8,42 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * 关键词抽取工具。
+ *
+ * <p>用于把用户描述、文档正文和文件名统一拆成可搜索 token。返回结果保持插入顺序并去重，
+ * 这样既能减少索引数量，也能让测试结果稳定。</p>
+ */
 public final class KeywordExtractor {
 
+    /** 匹配连续字母或数字，包括中文、日文、韩文等 Unicode 字符。 */
     private static final Pattern WORD_PATTERN = Pattern.compile("[\\p{L}\\p{N}]+");
+    /** 过滤过短 token，避免大量无意义的一字词进入索引。 */
     private static final int MIN_TOKEN_LENGTH = 2;
 
+    /** 工具类不需要实例化。 */
     private KeywordExtractor() {
     }
 
+    /**
+     * 从逗号分隔的输入中抽取关键词，常用于用户手动输入关键词的场景。
+     */
     public static List<String> extractCommaSeparated(String input) {
         Set<String> keywords = new LinkedHashSet<>();
         if (input == null || input.isBlank()) {
             return new ArrayList<>();
         }
 
+        // 逐段清洗、转小写、去重，空项和过短项会被 addKeyword 过滤。
         for (String rawKeyword : input.split(",")) {
             addKeyword(keywords, rawKeyword);
         }
         return new ArrayList<>(keywords);
     }
 
+    /**
+     * 从自然文本中抽取词语，并为中日韩文本额外生成相邻双字片段。
+     */
     public static List<String> extractWords(String text) {
         Set<String> keywords = new LinkedHashSet<>();
         if (text == null || text.isBlank()) {
@@ -36,6 +52,7 @@ public final class KeywordExtractor {
 
         Matcher matcher = WORD_PATTERN.matcher(text);
         while (matcher.find()) {
+            // 英文等空格分词语言直接使用正则匹配到的词；CJK 再补充 bigram。
             String word = normalize(matcher.group());
             if (!addKeyword(keywords, word) || !containsCjk(word)) {
                 continue;
@@ -45,6 +62,9 @@ public final class KeywordExtractor {
         return new ArrayList<>(keywords);
     }
 
+    /**
+     * 从文件名中抽取关键词，包括基础文件名、扩展名和拆分后的片段。
+     */
     public static List<String> extractFileNameKeywords(String fileName) {
         Set<String> keywords = new LinkedHashSet<>();
         if (fileName == null || fileName.isBlank()) {
@@ -58,12 +78,16 @@ public final class KeywordExtractor {
                 ? normalizedName.substring(extensionSeparator + 1)
                 : "";
 
+        // 先按常见分隔符拆基础名，再补充完整基础名和扩展名。
         keywords.addAll(extractWords(baseName.replaceAll("[_\\-\\.\\(\\)\\[\\]\\{\\}]+", " ")));
         addKeyword(keywords, baseName);
         addKeyword(keywords, extension);
         return new ArrayList<>(keywords);
     }
 
+    /**
+     * 规范化并加入集合；返回值表示该关键词是否足够长且被接受。
+     */
     private static boolean addKeyword(Set<String> keywords, String rawKeyword) {
         String keyword = normalize(rawKeyword);
         if (keyword.length() < MIN_TOKEN_LENGTH) {
@@ -73,6 +97,9 @@ public final class KeywordExtractor {
         return true;
     }
 
+    /**
+     * 去除首尾空白并转小写，保证上传索引和搜索输入使用同一形式。
+     */
     private static String normalize(String rawKeyword) {
         if (rawKeyword == null) {
             return "";
@@ -80,10 +107,16 @@ public final class KeywordExtractor {
         return rawKeyword.trim().toLowerCase(Locale.ROOT);
     }
 
+    /**
+     * 判断词语中是否包含中日韩字符。
+     */
     private static boolean containsCjk(String word) {
         return word.codePoints().anyMatch(KeywordExtractor::isCjkCodePoint);
     }
 
+    /**
+     * 根据 Unicode Script 判断单个码点是否属于 CJK 范围。
+     */
     private static boolean isCjkCodePoint(int codePoint) {
         Character.UnicodeScript script = Character.UnicodeScript.of(codePoint);
         return script == Character.UnicodeScript.HAN
@@ -92,12 +125,16 @@ public final class KeywordExtractor {
                 || script == Character.UnicodeScript.HANGUL;
     }
 
+    /**
+     * 为 CJK 文本生成相邻两个字符组成的片段，支持用户用局部词搜索长字符串。
+     */
     private static void addCjkBigrams(Set<String> keywords, String word) {
         int[] codePoints = word.codePoints().toArray();
         if (codePoints.length <= MIN_TOKEN_LENGTH) {
             return;
         }
 
+        // 使用 code point 而不是 char，避免代理对字符被错误拆分。
         for (int i = 0; i < codePoints.length - 1; i++) {
             String bigram = new String(codePoints, i, 2);
             addKeyword(keywords, bigram);

@@ -48,6 +48,7 @@ public class DatabaseManager {
 
     /** 获取指向业务数据库的 JDBC 连接。 */
     public Connection getConnection() throws SQLException {
+        // 每次调用都创建新的连接，仓储方法用 try-with-resources 控制释放。
         return DriverManager.getConnection(buildDatabaseJdbcUrl(), username, password);
     }
 
@@ -55,6 +56,7 @@ public class DatabaseManager {
      * 创建业务数据库和必要表结构。重复执行是安全的，适合服务端每次启动时调用。
      */
     public void initialize() {
+        // 第一步连接 MySQL 服务本身，确保业务数据库存在。
         try (Connection serverConnection = DriverManager.getConnection(buildServerJdbcUrl(), username, password);
              Statement serverStatement = serverConnection.createStatement()) {
             serverStatement.executeUpdate("CREATE DATABASE IF NOT EXISTS `" + databaseName + "` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
@@ -62,8 +64,10 @@ public class DatabaseManager {
             throw new RuntimeException("Failed to create database", e);
         }
 
+        // 第二步连接业务库，创建或补齐所有业务表结构。
         try (Connection connection = getConnection();
              Statement statement = connection.createStatement()) {
+            // 用户表只保存密码摘要和盐，不保存明文密码。
             statement.executeUpdate("""
                 CREATE TABLE IF NOT EXISTS users (
                     username VARCHAR(100) PRIMARY KEY,
@@ -73,6 +77,7 @@ public class DatabaseManager {
                 )
                 """);
 
+            // 文档表保存加密正文和展示元数据，owner_username 用于多用户隔离。
             statement.executeUpdate("""
                 CREATE TABLE IF NOT EXISTS documents (
                     doc_id VARCHAR(255) PRIMARY KEY,
@@ -88,6 +93,7 @@ public class DatabaseManager {
                 )
                 """);
 
+            // 关键词索引表保存每个关键词的可搜索密文，删除文档时通过外键自动清理。
             statement.executeUpdate("""
                 CREATE TABLE IF NOT EXISTS keyword_index (
                     id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -129,6 +135,9 @@ public class DatabaseManager {
         }
     }
 
+    /**
+     * 尝试给历史表补充列；如果列已存在，就忽略 MySQL 的重复列错误。
+     */
     private void ensureColumnExists(Statement statement, String tableName, String columnName, String columnDefinition) throws SQLException {
         try {
             statement.executeUpdate("ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + columnDefinition);

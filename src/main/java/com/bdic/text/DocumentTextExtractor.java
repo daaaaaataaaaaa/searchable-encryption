@@ -23,18 +23,26 @@ import java.util.Locale;
  */
 public final class DocumentTextExtractor {
 
+    /** 工具类不需要实例化。 */
     private DocumentTextExtractor() {
     }
 
+    /**
+     * 根据 MIME 类型、媒体分类和文件扩展名尝试抽取可索引文本。
+     *
+     * <p>不能识别或抽取失败时返回空字符串，避免上传流程因为文本预处理失败而中断。</p>
+     */
     public static String extract(Path path, String mimeType, String mediaType) {
         if (path == null || !Files.exists(path)) {
             return "";
         }
 
+        // 统一转小写，后续类型判断可以忽略大小写差异。
         String normalizedMimeType = mimeType == null ? "" : mimeType.toLowerCase(Locale.ROOT);
         String fileName = path.getFileName() == null ? "" : path.getFileName().toString().toLowerCase(Locale.ROOT);
 
         try {
+            // PDF 和 Word 需要专用解析库；普通文本类文件直接按 UTF-8 读取。
             if (isPdf(normalizedMimeType, fileName)) {
                 return extractPdf(path);
             }
@@ -51,10 +59,16 @@ public final class DocumentTextExtractor {
         return "";
     }
 
+    /**
+     * 判断文件是否应按 PDF 解析。
+     */
     private static boolean isPdf(String mimeType, String fileName) {
         return "application/pdf".equals(mimeType) || fileName.endsWith(".pdf");
     }
 
+    /**
+     * 判断文件是否应按 Word 文档解析，包括旧版 doc 和新版 docx。
+     */
     private static boolean isWord(String mimeType, String fileName) {
         return "application/msword".equals(mimeType)
                 || "application/vnd.openxmlformats-officedocument.wordprocessingml.document".equals(mimeType)
@@ -73,6 +87,9 @@ public final class DocumentTextExtractor {
                 || fileName.endsWith(".json");
     }
 
+    /**
+     * 使用 PDFBox 从 PDF 文件中抽取页面文本。
+     */
     private static String extractPdf(Path path) throws IOException {
         try (PDDocument document = Loader.loadPDF(path.toFile())) {
             PDFTextStripper stripper = new PDFTextStripper();
@@ -80,8 +97,12 @@ public final class DocumentTextExtractor {
         }
     }
 
+    /**
+     * 根据扩展名选择 POI 的 docx 或 doc 解析器，抽取 Word 文本。
+     */
     private static String extractWord(Path path, String fileName) throws IOException {
         if (fileName.endsWith(".docx")) {
+            // XWPF 处理 Office Open XML 格式的 docx。
             try (InputStream inputStream = Files.newInputStream(path);
                  XWPFDocument document = new XWPFDocument(inputStream);
                  XWPFWordExtractor extractor = new XWPFWordExtractor(document)) {
@@ -89,6 +110,7 @@ public final class DocumentTextExtractor {
             }
         }
 
+        // HWPF 处理较旧的二进制 doc 格式。
         try (InputStream inputStream = Files.newInputStream(path);
              HWPFDocument document = new HWPFDocument(inputStream);
              WordExtractor extractor = new WordExtractor(document)) {

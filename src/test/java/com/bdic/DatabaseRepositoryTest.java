@@ -15,8 +15,17 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * 加密文档仓储的单元/集成测试。
+ *
+ * <p>不依赖数据库的 ID 生成测试总会执行；真实数据库往返测试需要显式开启
+ * {@code -Dse.integration.db=true}。</p>
+ */
 public class DatabaseRepositoryTest extends TestCase {
 
+    /**
+     * 验证相同展示 docId 在不同用户下会生成不同的内部存储 ID。
+     */
     public void testStorageDocumentIdsAreScopedByUser() {
         String aliceDoc = EncryptedDataRepository.toStorageDocId("alice", "shared-doc");
         String bobDoc = EncryptedDataRepository.toStorageDocId("bob", "shared-doc");
@@ -26,11 +35,16 @@ public class DatabaseRepositoryTest extends TestCase {
         assertEquals(aliceDoc, EncryptedDataRepository.toStorageDocId("alice", "shared-doc"));
     }
 
+    /**
+     * 在开启数据库集成测试时，验证保存、搜索、列表和二进制轻量搜索结果。
+     */
     public void testRepositoryRoundTripWhenDatabaseIntegrationIsEnabled() throws Exception {
         if (!Boolean.getBoolean("se.integration.db")) {
+            // 默认跳过，避免普通单元测试必须依赖本地 MySQL。
             return;
         }
 
+        // 数据库连接参数可通过系统属性覆盖，默认指向本地测试库。
         String host = System.getProperty("se.db.host", "localhost");
         int port = Integer.parseInt(System.getProperty("se.db.port", "3306"));
         String databaseName = System.getProperty("se.db.name", "searchable_encryption_test");
@@ -39,6 +53,7 @@ public class DatabaseRepositoryTest extends TestCase {
         String ownerUsername = "repository_test_user";
 
         try {
+            // 初始化测试库和仓储对象，并清理上一次测试残留数据。
             DatabaseManager databaseManager = new DatabaseManager(host, port, databaseName, username, password);
             databaseManager.initialize();
             EncryptedDataRepository repository = new EncryptedDataRepository(databaseManager);
@@ -56,6 +71,7 @@ public class DatabaseRepositoryTest extends TestCase {
 
             SecretKey peksKey = PEKSUtil.generateKey();
 
+            // 构造三份测试文档：两份文本、一份图片类二进制文档。
             EncryptedData firstDocument = new EncryptedData(
                     "doc-1",
                     "encrypted-1".getBytes(),
@@ -83,6 +99,7 @@ public class DatabaseRepositoryTest extends TestCase {
             repository.save(ownerUsername, secondDocument);
             repository.save(ownerUsername, binaryDocument);
 
+            // 分别验证完整关键词、前缀关键词和图片关键词搜索。
             byte[] trapdoor = PEKSUtil.getTrapdoor(peksKey, "alpha");
             List<EncryptedData> searchResults = repository.searchByTrapdoor(ownerUsername, trapdoor);
             byte[] prefixTrapdoor = PEKSUtil.getTrapdoor(peksKey, "alp");
@@ -96,12 +113,17 @@ public class DatabaseRepositoryTest extends TestCase {
             assertEquals("doc-1", prefixSearchResults.get(0).getDocId());
             assertEquals(1, imageSearchResults.size());
             assertEquals("doc-3", imageSearchResults.get(0).getDocId());
+            // 图片搜索结果为了节省网络开销，不携带完整 encryptedContent。
             assertNull(imageSearchResults.get(0).getEncryptedContent());
         } finally {
+            // MySQL 驱动会启动清理线程，测试结束时显式关闭，避免进程悬挂。
             AbandonedConnectionCleanupThread.checkedShutdown();
         }
     }
 
+    /**
+     * 按生产代码同样的前缀扩展规则生成关键词密文。
+     */
     private static List<byte[]> encryptKeywords(SecretKey peksKey, String... keywords) throws Exception {
         Set<String> tokens = new LinkedHashSet<>();
         for (String keyword : keywords) {
@@ -115,6 +137,7 @@ public class DatabaseRepositoryTest extends TestCase {
                 continue;
             }
 
+            // 支持前缀搜索：alpha 会额外生成 al、alp、alph。
             for (int i = 2; i < normalizedKeyword.length(); i++) {
                 tokens.add(normalizedKeyword.substring(0, i));
             }
@@ -122,6 +145,7 @@ public class DatabaseRepositoryTest extends TestCase {
 
         List<byte[]> encryptedKeywords = new ArrayList<>();
         for (String token : tokens) {
+            // 服务端搜索时比较的是这些 HMAC 字节和查询陷门。
             encryptedKeywords.add(PEKSUtil.encrypt(peksKey, token));
         }
         return encryptedKeywords;

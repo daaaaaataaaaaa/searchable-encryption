@@ -14,6 +14,7 @@ import java.security.NoSuchAlgorithmException;
  */
 public class DESUtil {
 
+    /** JCE 中 DES 算法的标准名称。 */
     private static final String ALGORITHM = "DES";
 
     /**
@@ -34,6 +35,7 @@ public class DESUtil {
      * 根据持久化的原始字节恢复 DES 密钥。
      */
     public static SecretKey getKeyFromBytes(byte[] keyBytes) {
+        // SecretKeySpec 不重新派生密钥，只把已保存的原始字节包装成 JCE 可用的密钥对象。
         return new SecretKeySpec(keyBytes, ALGORITHM);
     }
 
@@ -41,6 +43,7 @@ public class DESUtil {
      * 使用指定密钥加密明文字节。
      */
     public static byte[] encrypt(byte[] plaintext, SecretKey key) throws Exception {
+        // 使用 JCE Cipher 完成一次性块加密，调用方负责传入完整明文字节。
         Cipher cipher = Cipher.getInstance(ALGORITHM);
         cipher.init(Cipher.ENCRYPT_MODE, key);
         return cipher.doFinal(plaintext);
@@ -50,6 +53,7 @@ public class DESUtil {
      * 使用指定密钥解密密文字节。
      */
     public static byte[] decrypt(byte[] ciphertext, SecretKey key) throws Exception {
+        // 解密流程与加密流程对称，输出会恢复为上传前的原始字节。
         Cipher cipher = Cipher.getInstance(ALGORITHM);
         cipher.init(Cipher.DECRYPT_MODE, key);
         return cipher.doFinal(ciphertext);

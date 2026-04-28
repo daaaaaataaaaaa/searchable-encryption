@@ -17,6 +17,7 @@ import java.util.Locale;
  */
 public class PEKSUtil {
 
+    /** 当前演示版 PEKS 使用的 HMAC 算法名称。 */
     private static final String ALGORITHM = "HmacSHA256";
 
     /**
@@ -32,6 +33,7 @@ public class PEKSUtil {
      * 根据本地保存的原始字节恢复搜索密钥。
      */
     public static SecretKey getKeyFromBytes(byte[] keyBytes) {
+        // 把本地持久化的 HMAC 密钥字节恢复成 SecretKey，保证重启后仍能命中旧索引。
         return new SecretKeySpec(keyBytes, ALGORITHM);
     }
 
@@ -39,6 +41,7 @@ public class PEKSUtil {
      * 为关键词生成可搜索密文，随文档一起保存到服务端索引表。
      */
     public static byte[] encrypt(SecretKey publicSearchKey, String keyword) throws Exception {
+        // 关键词密文实际是规范化关键词的 HMAC 值，服务端只保存不可逆摘要。
         return generateMac(publicSearchKey, keyword);
     }
 
@@ -46,6 +49,7 @@ public class PEKSUtil {
      * 为用户查询词生成陷门，服务端用它和关键词密文做匹配。
      */
     public static byte[] getTrapdoor(SecretKey privateSearchKey, String query) throws Exception {
+        // 查询陷门使用同样的规范化和 HMAC 过程，因此相同关键词会得到相同字节序列。
         return generateMac(privateSearchKey, query);
     }
 
@@ -63,12 +67,18 @@ public class PEKSUtil {
         return MessageDigest.isEqual(peksCiphertext, trapdoor);
     }
 
+    /**
+     * 对规范化后的关键词计算 HMAC，供加密关键词和生成陷门共用。
+     */
     private static byte[] generateMac(SecretKey key, String keyword) throws Exception {
         Mac mac = Mac.getInstance(ALGORITHM);
         mac.init(key);
         return mac.doFinal(normalizeKeyword(keyword).getBytes(StandardCharsets.UTF_8));
     }
 
+    /**
+     * 统一关键词大小写和首尾空白，保证上传和搜索使用同一匹配口径。
+     */
     private static String normalizeKeyword(String keyword) {
         if (keyword == null) {
             return "";

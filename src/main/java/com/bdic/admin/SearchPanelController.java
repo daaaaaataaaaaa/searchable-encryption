@@ -25,23 +25,39 @@ import java.util.Locale;
  * 搜索页控制器：负责关键词搜索 UI 与异步搜索流程。
  */
 public class SearchPanelController {
+    /** 搜索结果中图片缩略图最大宽度。 */
     private static final int PREVIEW_THUMB_MAX_WIDTH = 180;
+    /** 搜索结果中图片缩略图最大高度。 */
     private static final int PREVIEW_THUMB_MAX_HEIGHT = 130;
 
 
+    /** 主窗口，用于弹窗定位。 */
     private final JFrame owner;
+    /** 与服务端通信的客户端。 */
     private final DocumentServiceClient serviceClient;
+    /** 本地解密和文件类型判断服务。 */
     private final DocumentOperationService operationService;
+    /** 当前用户本地密钥。 */
     private final ClientKeyManager.KeyBundle keyBundle;
+    /** 全局忙碌状态管理器。 */
     private UiBusyStateManager busyStateManager;
 
+    /** 搜索关键词输入框。 */
     private JTextField searchField;
+    /** 搜索结果卡片容器。 */
     private JPanel resultListPanel;
+    /** 触发搜索按钮。 */
     private JButton searchButton;
+    /** 结果滚动区域。 */
     private JScrollPane imagePreviewScrollPane;
+    /** 搜索页状态文本。 */
     private JLabel searchStatusLabel;
+    /** 搜索页进度条。 */
     private JProgressBar searchProgressBar;
 
+    /**
+     * 创建搜索页控制器。
+     */
     public SearchPanelController(
             JFrame owner,
             DocumentServiceClient serviceClient,
@@ -54,10 +70,14 @@ public class SearchPanelController {
         this.keyBundle = keyBundle;
     }
 
+    /**
+     * 创建搜索页完整 UI。
+     */
     public JPanel createPanel() {
         JPanel searchPanel = new JPanel(new BorderLayout(10, 10));
         searchPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
+        // 顶部搜索栏支持按钮搜索，也支持在输入框中按回车搜索。
         JPanel searchFormPanel = new JPanel(new BorderLayout(8, 8));
         searchFormPanel.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
         searchFormPanel.add(new JLabel("Search Keyword"), BorderLayout.WEST);
@@ -71,6 +91,7 @@ public class SearchPanelController {
         searchFormPanel.add(searchButton, BorderLayout.EAST);
         searchPanel.add(UiComponentFactory.createSectionPanel("Keyword Search", "Search by keyword prefix, file name, or extracted document text.", searchFormPanel), BorderLayout.NORTH);
 
+        // 中间结果区按纵向卡片展示，每个卡片可能包含图片缩略图或文本预览。
         resultListPanel = new JPanel();
         resultListPanel.setLayout(new BoxLayout(resultListPanel, BoxLayout.Y_AXIS));
         resultListPanel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
@@ -97,18 +118,22 @@ public class SearchPanelController {
         return searchPanel;
     }
 
+    /** 注入忙碌状态管理器。 */
     public void setBusyStateManager(UiBusyStateManager busyStateManager) {
         this.busyStateManager = busyStateManager;
     }
 
+    /** 返回搜索页状态标签。 */
     public JLabel getStatusLabel() {
         return searchStatusLabel;
     }
 
+    /** 返回搜索页进度条。 */
     public JProgressBar getProgressBar() {
         return searchProgressBar;
     }
 
+    /** 返回后台搜索期间需要禁用的控件。 */
     public List<JComponent> getBusySensitiveComponents() {
         List<JComponent> components = new ArrayList<>();
         components.add(searchButton);
@@ -116,6 +141,9 @@ public class SearchPanelController {
         return components;
     }
 
+    /**
+     * 响应搜索动作：生成陷门、调用服务端搜索，并在完成后渲染结果。
+     */
     private void handleSearch() {
         if (busyStateManager == null || busyStateManager.isBusy()) {
             return;
@@ -128,10 +156,12 @@ public class SearchPanelController {
         }
 
         busyStateManager.setSearchBusy(true, "Searching for \"" + keyword + "\"...");
+        // 搜索和必要的下载预览都在后台线程执行，避免阻塞 Swing 事件线程。
         new SwingWorker<SearchTaskResult, Void>() {
             @Override
             protected SearchTaskResult doInBackground() {
                 try {
+                    // 关键词先在客户端用搜索密钥变成陷门，服务端只拿陷门做密文匹配。
                     byte[] trapdoor = PEKSUtil.getTrapdoor(keyBundle.peksKey(), keyword);
                     ServerResponse response = serviceClient.search(trapdoor);
                     if (!response.isSuccess()) {
@@ -140,6 +170,7 @@ public class SearchPanelController {
 
                     if (response.getData() instanceof List<?> rawResults) {
                         List<EncryptedData> parsedResults = castSearchResults(rawResults);
+                        // 除密文关键词外，再用 docId/文件名做兜底模糊匹配，提升可用性。
                         List<EncryptedData> fallbackResults = searchByDocIdOrFileName(keyword);
                         List<EncryptedData> mergedResults = mergeByDocId(parsedResults, fallbackResults);
                         return SearchTaskResult.success(mergedResults);
@@ -173,6 +204,9 @@ public class SearchPanelController {
         }.execute();
     }
 
+    /**
+     * 将服务端返回的原始列表转换为 EncryptedData 列表。
+     */
     private List<EncryptedData> castSearchResults(List<?> rawResults) {
         List<EncryptedData> results = new ArrayList<>();
         for (Object rawResult : rawResults) {
@@ -181,6 +215,9 @@ public class SearchPanelController {
         return results;
     }
 
+    /**
+     * 使用文档列表做 docId/文件名模糊匹配，命中后再下载完整文档用于展示。
+     */
     private List<EncryptedData> searchByDocIdOrFileName(String keyword) throws Exception {
         ServerResponse listResponse = serviceClient.listDocuments();
         if (!listResponse.isSuccess() || !(listResponse.getData() instanceof List<?> rawSummaries)) {
@@ -198,6 +235,7 @@ public class SearchPanelController {
             if (!docId.contains(normalizedKeyword) && !fileName.contains(normalizedKeyword)) {
                 continue;
             }
+            // 摘要不含密文正文，因此命中后需要下载完整文档对象。
             ServerResponse downloadResponse = serviceClient.downloadDocument(summary.getDocId());
             if (downloadResponse.isSuccess() && downloadResponse.getData() instanceof EncryptedData data) {
                 matched.add(data);
@@ -206,6 +244,9 @@ public class SearchPanelController {
         return matched;
     }
 
+    /**
+     * 合并两组结果，并按 docId 去重。
+     */
     private List<EncryptedData> mergeByDocId(List<EncryptedData> primary, List<EncryptedData> secondary) {
         List<EncryptedData> merged = new ArrayList<>(primary);
         for (EncryptedData candidate : secondary) {
@@ -226,6 +267,9 @@ public class SearchPanelController {
         return merged;
     }
 
+    /**
+     * 确保预览所需的加密正文存在；轻量搜索结果缺正文时再下载完整文档。
+     */
     private EncryptedData ensurePreviewContentAvailable(EncryptedData data) throws Exception {
         if (data.getEncryptedContent() != null && data.getEncryptedContent().length > 0) {
             return data;
@@ -237,6 +281,9 @@ public class SearchPanelController {
         return downloaded;
     }
 
+    /**
+     * 判断搜索结果是否适合展示图片预览。
+     */
     private boolean isPreviewableImage(EncryptedData data) {
         if (data == null) {
             return false;
@@ -246,6 +293,9 @@ public class SearchPanelController {
         return mimeType.startsWith("image/") || mediaType.contains("image");
     }
 
+    /**
+     * 清空并重新渲染搜索结果列表。
+     */
     private void renderSearchResults(List<EncryptedData> results) {
         resultListPanel.removeAll();
 
@@ -260,6 +310,7 @@ public class SearchPanelController {
             return;
         }
 
+        // 每条结果独立卡片展示，卡片间用固定垂直间距隔开。
         for (EncryptedData result : results) {
             resultListPanel.add(buildResultCard(result));
             resultListPanel.add(Box.createVerticalStrut(8));
@@ -268,6 +319,9 @@ public class SearchPanelController {
         resultListPanel.repaint();
     }
 
+    /**
+     * 构建单个搜索结果卡片。
+     */
     private JComponent buildResultCard(EncryptedData data) {
         JPanel card = new JPanel(new BorderLayout(6, 6));
         card.setBorder(BorderFactory.createCompoundBorder(
@@ -277,6 +331,7 @@ public class SearchPanelController {
 
         JComponent previewComponent = buildImagePreviewComponent(data);
         if (previewComponent != null) {
+            // 图片缩略图放在卡片顶部，文本信息放在下方。
             JPanel previewRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
             previewRow.setOpaque(false);
             previewRow.add(previewComponent);
@@ -294,6 +349,9 @@ public class SearchPanelController {
         return card;
     }
 
+    /**
+     * 生成结果卡片中的文本描述，包括元数据、描述和可选正文预览。
+     */
     private String buildResultInfoText(EncryptedData result) {
         StringBuilder sb = new StringBuilder();
         sb.append("DocID: ").append(result.getDocId()).append('\n');
@@ -311,6 +369,7 @@ public class SearchPanelController {
                 return sb.toString();
             }
             try {
+                // 文本预览在客户端本地解密，服务端仍不接触明文内容。
                 byte[] decryptedBytes = DESUtil.decrypt(result.getEncryptedContent(), keyBundle.desKey());
                 String content = new String(decryptedBytes, StandardCharsets.UTF_8);
                 sb.append("Content: ").append(truncate(content, 600));
@@ -323,6 +382,9 @@ public class SearchPanelController {
         return sb.toString();
     }
 
+    /**
+     * 从加密关键词元数据中恢复用户输入的描述。
+     */
     private String extractDescription(EncryptedData data) {
         if (data.getEncryptedKeywordMetadata() == null || data.getEncryptedKeywordMetadata().length == 0) {
             return "";
@@ -331,6 +393,7 @@ public class SearchPanelController {
             byte[] decryptedMetadata = DESUtil.decrypt(data.getEncryptedKeywordMetadata(), keyBundle.desKey());
             String metadataText = new String(decryptedMetadata, StandardCharsets.UTF_8);
             String prefix = DocumentOperationService.DESCRIPTION_METADATA_PREFIX;
+            // 描述行使用固定前缀，后续普通关键词行会被跳过。
             for (String line : metadataText.split("\\R")) {
                 String value = line == null ? "" : line.trim();
                 if (!value.startsWith(prefix)) {
@@ -348,6 +411,9 @@ public class SearchPanelController {
         return "";
     }
 
+    /**
+     * 截断过长文本，避免搜索结果卡片被大文档撑得过高。
+     */
     private String truncate(String value, int maxLength) {
         if (value == null) {
             return "";
@@ -358,6 +424,9 @@ public class SearchPanelController {
         return value.substring(0, maxLength) + "...";
     }
 
+    /**
+     * 为图片搜索结果创建可点击缩略图。
+     */
     private JComponent buildImagePreviewComponent(EncryptedData data) {
         if (!isPreviewableImage(data)) {
             return null;
@@ -367,6 +436,7 @@ public class SearchPanelController {
             if (previewSource.getEncryptedContent() == null) {
                 return null;
             }
+            // 图片预览需要在客户端解密原始图片字节，再交给 ImageIO 解码。
             byte[] decryptedBytes = DESUtil.decrypt(previewSource.getEncryptedContent(), keyBundle.desKey());
             BufferedImage image = ImageIO.read(new ByteArrayInputStream(decryptedBytes));
             if (image == null) {
@@ -380,6 +450,7 @@ public class SearchPanelController {
             iconLabel.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseClicked(MouseEvent event) {
+                    // 缩略图点击后打开模态大图预览。
                     showImagePreviewDialog(data.getFileName(), image);
                 }
             });
@@ -389,6 +460,9 @@ public class SearchPanelController {
         }
     }
 
+    /**
+     * 展示图片大图预览对话框。
+     */
     private void showImagePreviewDialog(String fileName, BufferedImage image) {
         int maxWidth = Math.max(480, owner.getWidth() - 120);
         int maxHeight = Math.max(360, owner.getHeight() - 180);
@@ -410,6 +484,9 @@ public class SearchPanelController {
         dialog.setVisible(true);
     }
 
+    /**
+     * 将图片等比缩放到指定最大宽高内。
+     */
     private Image scaleImageToFit(BufferedImage image, int maxWidth, int maxHeight) {
         int width = image.getWidth();
         int height = image.getHeight();
@@ -422,11 +499,19 @@ public class SearchPanelController {
         return image.getScaledInstance(targetWidth, targetHeight, Image.SCALE_SMOOTH);
     }
 
+    /**
+     * 搜索后台任务结果。
+     *
+     * @param results 搜索成功时的文档列表。
+     * @param errorMessage 搜索失败时的错误信息，成功时为 null。
+     */
     private record SearchTaskResult(List<EncryptedData> results, String errorMessage) {
+        /** 创建成功结果。 */
         private static SearchTaskResult success(List<EncryptedData> results) {
             return new SearchTaskResult(results, null);
         }
 
+        /** 创建失败结果。 */
         private static SearchTaskResult failure(String errorMessage) {
             return new SearchTaskResult(Collections.emptyList(), errorMessage);
         }
