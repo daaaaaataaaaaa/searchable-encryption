@@ -305,8 +305,7 @@ public class SearchPanelController {
 
         if (results.isEmpty()) {
             resultListPanel.add(new JLabel("No matched documents."));
-            resultListPanel.revalidate();
-            resultListPanel.repaint();
+            refreshResultList();
             return;
         }
 
@@ -315,6 +314,11 @@ public class SearchPanelController {
             resultListPanel.add(buildResultCard(result));
             resultListPanel.add(Box.createVerticalStrut(8));
         }
+        refreshResultList();
+    }
+
+    private void refreshResultList() {
+        UiScaleManager.reapplyCurrentScale(owner);
         resultListPanel.revalidate();
         resultListPanel.repaint();
     }
@@ -339,6 +343,10 @@ public class SearchPanelController {
         }
 
         JTextArea infoArea = new JTextArea();
+        Font resultFont = UIManager.getFont("Label.font");
+        if (resultFont != null) {
+            infoArea.setFont(resultFont);
+        }
         infoArea.setEditable(false);
         infoArea.setOpaque(false);
         infoArea.setLineWrap(true);

@@ -25,6 +25,7 @@ public final class UiScaleManager {
     private static final String BASE_GRID_GAP_KEY = "ui.scale.baseGridGap";
     /** 记录 Box.Filler 原始尺寸的 client property 键。 */
     private static final String BASE_FILLER_SIZE_KEY = "ui.scale.baseFillerSize";
+    private static final String MANAGER_KEY = "ui.scale.manager";
 
     /** 被缩放管理器接管的主窗口。 */
     private final JFrame frame;
@@ -53,6 +54,7 @@ public final class UiScaleManager {
      */
     public static void install(JFrame frame, int baseWidth, int baseHeight) {
         UiScaleManager manager = new UiScaleManager(frame, baseWidth, baseHeight, 1.0d, 1.8d);
+        frame.getRootPane().putClientProperty(MANAGER_KEY, manager);
         manager.applyCurrentScale();
         frame.addComponentListener(new ComponentAdapter() {
             @Override
@@ -60,6 +62,16 @@ public final class UiScaleManager {
                 manager.applyCurrentScale();
             }
         });
+    }
+
+    public static void reapplyCurrentScale(JFrame frame) {
+        if (frame == null || frame.getRootPane() == null) {
+            return;
+        }
+        Object managerValue = frame.getRootPane().getClientProperty(MANAGER_KEY);
+        if (managerValue instanceof UiScaleManager manager) {
+            manager.applyCurrentScale();
+        }
     }
 
     /**
