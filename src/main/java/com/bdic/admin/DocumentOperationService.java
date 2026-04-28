@@ -15,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -26,6 +27,7 @@ import java.util.stream.Collectors;
  * 负责文档上传、索引重建、关键词处理等核心逻辑。
  */
 public class DocumentOperationService {
+    public static final String DESCRIPTION_METADATA_PREFIX = "__description_b64__:";
 
     private final long maxAutomaticTextKeywordBytes;
 
@@ -51,8 +53,8 @@ public class DocumentOperationService {
         return new UploadContent(originalContent, fileName, mimeType, mediaType, fileSize, extractedText, automaticTextKeywordsEnabled);
     }
 
-    public EncryptedData buildEncryptedData(String docId, UploadContent uploadContent, String keywordsInput, SecretKey desKey, SecretKey peksKey) throws Exception {
-        List<String> keywords = resolveKeywords(keywordsInput, uploadContent);
+    public EncryptedData buildEncryptedData(String docId, UploadContent uploadContent, String descriptionInput, SecretKey desKey, SecretKey peksKey) throws Exception {
+        List<String> keywords = resolveKeywords(descriptionInput, uploadContent);
         if (keywords.isEmpty()) {
             throw new IllegalArgumentException("No searchable keywords were found for " + uploadContent.fileName());
         }
@@ -69,7 +71,7 @@ public class DocumentOperationService {
                 uploadContent.mimeType(),
                 uploadContent.mediaType(),
                 uploadContent.fileSize(),
-                encryptKeywordMetadata(keywords, desKey),
+                encryptKeywordMetadata(keywords, descriptionInput, desKey),
                 encryptedContent,
                 peksCiphertexts
         );
@@ -156,9 +158,9 @@ public class DocumentOperationService {
         return "text".equalsIgnoreCase(mediaType);
     }
 
-    private List<String> resolveKeywords(String keywordsInput, UploadContent uploadContent) {
+    private List<String> resolveKeywords(String descriptionInput, UploadContent uploadContent) {
         Set<String> keywords = new LinkedHashSet<>();
-        keywords.addAll(KeywordExtractor.extractCommaSeparated(keywordsInput));
+        keywords.addAll(KeywordExtractor.extractWords(descriptionInput));
         keywords.addAll(KeywordExtractor.extractFileNameKeywords(uploadContent.fileName()));
         if (uploadContent.automaticTextKeywordsEnabled() && uploadContent.extractedText() != null && !uploadContent.extractedText().isBlank()) {
             keywords.addAll(KeywordExtractor.extractWords(uploadContent.extractedText()));
@@ -255,10 +257,14 @@ public class DocumentOperationService {
     }
 
     private byte[] encryptKeywordMetadata(String[] keywords, SecretKey desKey) throws Exception {
-        return encryptKeywordMetadata(Arrays.asList(keywords), desKey);
+        return encryptKeywordMetadata(Arrays.asList(keywords), null, desKey);
     }
 
     private byte[] encryptKeywordMetadata(List<String> keywords, SecretKey desKey) throws Exception {
+        return encryptKeywordMetadata(keywords, null, desKey);
+    }
+
+    private byte[] encryptKeywordMetadata(List<String> keywords, String descriptionInput, SecretKey desKey) throws Exception {
         List<String> normalizedKeywords = new ArrayList<>();
         for (String rawKeyword : keywords) {
             if (rawKeyword == null) {
@@ -274,8 +280,16 @@ public class DocumentOperationService {
             return null;
         }
 
-        String joinedKeywords = String.join("\n", normalizedKeywords);
-        return DESUtil.encrypt(joinedKeywords.getBytes(StandardCharsets.UTF_8), desKey);
+        List<String> metadataLines = new ArrayList<>();
+        String normalizedDescription = descriptionInput == null ? "" : descriptionInput.trim();
+        if (!normalizedDescription.isEmpty()) {
+            String encodedDescription = Base64.getEncoder().encodeToString(normalizedDescription.getBytes(StandardCharsets.UTF_8));
+            metadataLines.add(DESCRIPTION_METADATA_PREFIX + encodedDescription);
+        }
+        metadataLines.addAll(normalizedKeywords);
+
+        String joinedMetadata = String.join("\n", metadataLines);
+        return DESUtil.encrypt(joinedMetadata.getBytes(StandardCharsets.UTF_8), desKey);
     }
 
     private String[] resolveOriginalKeywords(EncryptedData data, SecretKey desKey, Component parent) throws Exception {
@@ -284,7 +298,7 @@ public class DocumentOperationService {
             String restoredKeywords = new String(DESUtil.decrypt(encryptedKeywordMetadata, desKey), StandardCharsets.UTF_8);
             return Arrays.stream(restoredKeywords.split("\\R"))
                     .map(String::trim)
-                    .filter(keyword -> !keyword.isEmpty())
+                    .filter(keyword -> !keyword.isEmpty() && !keyword.startsWith(DESCRIPTION_METADATA_PREFIX))
                     .toArray(String[]::new);
         }
 

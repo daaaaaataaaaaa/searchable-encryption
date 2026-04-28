@@ -12,7 +12,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 
 /**
  * 上传页控制器：负责上传相关 UI 与异步上传流程。
@@ -29,8 +28,8 @@ public class UploadPanelController {
     private UiBusyStateManager busyStateManager;
 
     private JTextField docIdField;
-    private JTextArea contentArea;
-    private JTextField keywordsField;
+    private JTextField descriptionField;
+    private JTextArea plainTextContentArea;
     private JLabel selectedFileLabel;
     private JButton importButton;
     private JButton clearFileButton;
@@ -56,16 +55,12 @@ public class UploadPanelController {
         JPanel uploadPanel = new JPanel(new BorderLayout(10, 10));
         uploadPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
 
-        JPanel uploadFormPanel = new JPanel(new GridLayout(4, 2, 5, 5));
-        uploadFormPanel.add(new JLabel("Document ID (auto):"));
+        JPanel uploadFormPanel = new JPanel(new GridLayout(3, 2, 5, 5));
+        uploadFormPanel.add(new JLabel("Document ID:"));
         docIdField = new JTextField();
         docIdField.setEditable(false);
         docIdField.setText(DocumentIdGenerator.generate());
         uploadFormPanel.add(docIdField);
-
-        uploadFormPanel.add(new JLabel("Keywords (optional):"));
-        keywordsField = new JTextField();
-        uploadFormPanel.add(keywordsField);
 
         uploadFormPanel.add(new JLabel("Selected Files:"));
         selectedFileLabel = new JLabel("No file or folder selected");
@@ -86,10 +81,25 @@ public class UploadPanelController {
 
         uploadPanel.add(uploadFormPanel, BorderLayout.NORTH);
 
-        contentArea = new JTextArea();
-        contentArea.setLineWrap(true);
-        contentArea.setWrapStyleWord(true);
-        uploadPanel.add(UiComponentFactory.createSectionPanel("Document Content", "Enter text or choose files to encrypt and upload.", new JScrollPane(contentArea)), BorderLayout.CENTER);
+        descriptionField = new JTextField();
+
+        plainTextContentArea = new JTextArea(14, 20);
+        plainTextContentArea.setLineWrap(true);
+        plainTextContentArea.setWrapStyleWord(true);
+
+        JScrollPane contentScrollPane = new JScrollPane(plainTextContentArea);
+
+        JPanel centerPanel = new JPanel(new BorderLayout(8, 8));
+        JPanel descriptionPanel = new JPanel(new BorderLayout(6, 0));
+        descriptionPanel.add(new JLabel("Description:"), BorderLayout.WEST);
+        descriptionPanel.add(descriptionField, BorderLayout.CENTER);
+        centerPanel.add(descriptionPanel, BorderLayout.NORTH);
+        centerPanel.add(UiComponentFactory.createSectionPanel(
+                "Content (plain text)",
+                "Paste plain text here when uploading as a text document (without selecting files).",
+                contentScrollPane
+        ), BorderLayout.CENTER);
+        uploadPanel.add(centerPanel, BorderLayout.CENTER);
 
         uploadButton = new JButton("Upload Document");
         uploadButton.addActionListener(e -> handleUpload());
@@ -110,6 +120,7 @@ public class UploadPanelController {
         footerPanel.add(statusPanel, BorderLayout.WEST);
         footerPanel.add(uploadButton, BorderLayout.EAST);
         uploadPanel.add(footerPanel, BorderLayout.SOUTH);
+        registerEnterToUpload(uploadPanel);
         return uploadPanel;
     }
 
@@ -130,17 +141,17 @@ public class UploadPanelController {
         components.add(uploadButton);
         components.add(importButton);
         components.add(clearFileButton);
-        components.add(contentArea);
-        components.add(keywordsField);
+        components.add(descriptionField);
+        components.add(plainTextContentArea);
         return components;
     }
 
     private void handleUpload() {
-        String content = contentArea.getText();
-        String keywordsInput = keywordsField.getText().trim();
+        String description = descriptionField.getText();
+        String plainTextContent = plainTextContentArea.getText();
 
-        if ((content == null || content.isBlank()) && selectedFilePaths.isEmpty()) {
-            JOptionPane.showMessageDialog(owner, "Please enter text content or choose files/folder.", "Warning", JOptionPane.WARNING_MESSAGE);
+        if ((plainTextContent == null || plainTextContent.isBlank()) && selectedFilePaths.isEmpty()) {
+            JOptionPane.showMessageDialog(owner, "Please enter plain text content or choose files/folder.", "Warning", JOptionPane.WARNING_MESSAGE);
             return;
         }
         if (busyStateManager == null || busyStateManager.isBusy()) {
@@ -153,7 +164,7 @@ public class UploadPanelController {
             @Override
             protected UploadTaskResult doInBackground() {
                 try {
-                    return performUpload(content, keywordsInput, filesToUpload, status -> publish(status));
+                    return performUpload(description, plainTextContent, filesToUpload, status -> publish(status));
                 } catch (Exception ex) {
                     ex.printStackTrace();
                     return UploadTaskResult.error("Upload failed: " + DocumentOperationService.describeException(ex));
@@ -197,16 +208,16 @@ public class UploadPanelController {
     }
 
     private UploadTaskResult performUpload(
-            String content,
-            String keywordsInput,
+            String description,
+            String plainTextContent,
             List<Path> filesToUpload,
             Consumer<String> statusUpdater
     ) throws Exception {
         if (filesToUpload.isEmpty()) {
-            statusUpdater.accept("Encrypting and uploading text document...");
+            statusUpdater.accept("Encrypting and uploading text content...");
             String docId = docIdField.getText().trim();
-            DocumentOperationService.UploadContent uploadContent = operationService.resolveTextUploadContent(docId, content);
-            ServerResponse response = uploadSingleDocument(docId, uploadContent, keywordsInput);
+            DocumentOperationService.UploadContent uploadContent = operationService.resolveTextUploadContent(docId, plainTextContent);
+            ServerResponse response = uploadSingleDocument(docId, uploadContent, description);
             return new UploadTaskResult(
                     "Upload Result",
                     response.getMessage(),
@@ -225,7 +236,7 @@ public class UploadPanelController {
             String docId = DocumentIdGenerator.generate();
             try {
                 DocumentOperationService.UploadContent uploadContent = operationService.resolveFileUploadContent(filePath);
-                ServerResponse response = uploadSingleDocument(docId, uploadContent, keywordsInput);
+                ServerResponse response = uploadSingleDocument(docId, uploadContent, description);
                 if (response.isSuccess()) {
                     successCount++;
                 } else {
@@ -253,8 +264,8 @@ public class UploadPanelController {
         );
     }
 
-    private ServerResponse uploadSingleDocument(String docId, DocumentOperationService.UploadContent uploadContent, String keywordsInput) throws Exception {
-        EncryptedData data = operationService.buildEncryptedData(docId, uploadContent, keywordsInput, keyBundle.desKey(), keyBundle.peksKey());
+    private ServerResponse uploadSingleDocument(String docId, DocumentOperationService.UploadContent uploadContent, String descriptionInput) throws Exception {
+        EncryptedData data = operationService.buildEncryptedData(docId, uploadContent, descriptionInput, keyBundle.desKey(), keyBundle.peksKey());
         return serviceClient.upload(data);
     }
 
@@ -311,7 +322,27 @@ public class UploadPanelController {
         folderItem.addActionListener(e -> chooseFolder());
         menu.add(folderItem);
 
+        applyPopupMenuScale(menu, invoker, filesItem, folderItem);
         menu.show(invoker, 0, invoker.getHeight());
+    }
+
+    private void applyPopupMenuScale(JPopupMenu menu, Component invoker, JMenuItem... items) {
+        Font targetFont = invoker.getFont();
+        if (targetFont == null) {
+            return;
+        }
+
+        int horizontalPadding = Math.max(10, Math.round(targetFont.getSize2D() * 0.8f));
+        int verticalPadding = Math.max(4, Math.round(targetFont.getSize2D() * 0.35f));
+        int minHeight = Math.max(invoker.getHeight(), 24);
+
+        menu.setFont(targetFont);
+        for (JMenuItem item : items) {
+            item.setFont(targetFont);
+            item.setBorder(BorderFactory.createEmptyBorder(verticalPadding, horizontalPadding, verticalPadding, horizontalPadding));
+            Dimension preferredSize = item.getPreferredSize();
+            item.setPreferredSize(new Dimension(preferredSize.width, Math.max(preferredSize.height, minHeight)));
+        }
     }
 
     private void clearSelectedFiles() {
@@ -337,25 +368,34 @@ public class UploadPanelController {
             selectedFileLabel.setText(selectedFilePaths.get(0).getFileName().toString());
             return;
         }
-        String preview = selectedFilePaths.stream()
-                .limit(3)
-                .map(path -> path.getFileName().toString())
-                .collect(Collectors.joining(", "));
-        if (selectedFilePaths.size() > 3) {
-            preview += " ... (" + selectedFilePaths.size() + " files)";
-        }
-        selectedFileLabel.setText(preview);
+        selectedFileLabel.setText(selectedFilePaths.size() + " files selected");
     }
 
     private String initialUploadStatus(List<Path> filesToUpload) {
-        return filesToUpload.isEmpty() ? "Uploading text document..." : "Preparing " + filesToUpload.size() + " file(s)...";
+        return filesToUpload.isEmpty() ? "Uploading text content..." : "Preparing " + filesToUpload.size() + " file(s)...";
     }
 
     private void resetUploadForm() {
         docIdField.setText(DocumentIdGenerator.generate());
-        contentArea.setText("");
-        keywordsField.setText("");
+        descriptionField.setText("");
+        plainTextContentArea.setText("");
         clearSelectedFiles();
+    }
+
+    private void registerEnterToUpload(JComponent root) {
+        InputMap inputMap = root.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
+        ActionMap actionMap = root.getActionMap();
+        inputMap.put(KeyStroke.getKeyStroke("ENTER"), "triggerUpload");
+        actionMap.put("triggerUpload", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent e) {
+                Component focusOwner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+                if (focusOwner instanceof JTextArea) {
+                    return;
+                }
+                handleUpload();
+            }
+        });
     }
 
     private record UploadTaskResult(

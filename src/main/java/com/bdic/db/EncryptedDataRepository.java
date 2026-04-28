@@ -294,7 +294,7 @@ public class EncryptedDataRepository {
                 resultSet.getString("mime_type"),
                 mediaType,
                 resultSet.getLong("file_size"),
-                null,
+                resultSet.getBytes("encrypted_keyword_metadata"),
                 includeEncryptedContent ? resultSet.getBytes("encrypted_content") : null,
                 List.of()
         );

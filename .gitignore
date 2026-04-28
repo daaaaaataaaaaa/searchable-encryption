@@ -1,41 +1,60 @@
+# =========================
+# Java / Maven build output
+# =========================
 target/
+build/
+out/
 .m2/
-client-keys/
-!.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
-.kotlin
+.kotlin/
+*.class
 
-### IntelliJ IDEA ###
-.idea/modules.xml
-.idea/jarRepositories.xml
-.idea/compiler.xml
-.idea/libraries/
-*.iws
+# Keep Maven Wrapper JAR if present
+!.mvn/wrapper/maven-wrapper.jar
+
+# ================
+# Runtime artifacts
+# ================
+logs/
+*.log
+*.pid
+*.tmp
+
+# =================
+# Keys / certificates
+# =================
+client-keys/
+*.jks
+*.p12
+*.pfx
+
+# ==========
+# IDE / tools
+# ==========
+.idea/
+.vscode/
 *.iml
 *.ipr
+*.iws
 
-### Eclipse ###
+# Eclipse
 .apt_generated
 .classpath
 .factorypath
 .project
-.settings
+.settings/
 .springBeans
-.sts4-cache
+.sts4-cache/
 
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
+# NetBeans
+nbproject/private/
+nbbuild/
+dist/
+nbdist/
+.nb-gradle/
 
-### VS Code ###
-.vscode/
-
-### Mac OS ###
+# ==============
+# OS / editor junk
+# ==============
 .DS_Store
+Thumbs.db
+Desktop.ini
