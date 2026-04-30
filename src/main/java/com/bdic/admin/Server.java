@@ -175,7 +175,7 @@ public class Server {
                                     break;
                                 }
                                 byte[] trapdoor = (byte[]) message.getPayload();
-                                // 搜索只比较陷门和索引密文，相同关键词会产生相同 HMAC 字节。
+                                // 搜索只把 trapdoor 交给仓储层执行 PEKS 测试，服务端不接触明文关键词。
                                 List<EncryptedData> matchedData = repository.searchByTrapdoor(currentUsername, trapdoor);
                                 writeResponse(out, true, "Search completed.", matchedData);
                                 break;

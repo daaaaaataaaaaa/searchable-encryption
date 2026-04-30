@@ -45,7 +45,7 @@ public class AdminClientApp extends JFrame {
 
     /** 当前登录用户名。 */
     private String currentUsername;
-    /** 当前用户的 DES 密钥和搜索密钥。 */
+    /** 当前用户的 DES 密钥和 PEKS 搜索公私钥。 */
     private ClientKeyManager.KeyBundle keyBundle;
 
     /** 与服务端建立的 TLS socket。 */
@@ -197,7 +197,7 @@ public class AdminClientApp extends JFrame {
                 currentUsername = sessionInfo.getUsername();
             }
 
-            // 用户密钥只保存在客户端本地，服务端永远拿不到 DES 密钥和搜索密钥。
+            // 用户密钥只保存在客户端本地，服务端永远拿不到 DES 密钥和 PEKS 私钥。
             keyBundle = keyManager.loadOrCreate(currentUsername);
             return true;
         }

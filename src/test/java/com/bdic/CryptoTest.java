@@ -7,6 +7,7 @@ import junit.framework.TestCase;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
 
 /**
  * 加密相关工具的单元测试。
@@ -29,18 +30,36 @@ public class CryptoTest extends TestCase {
     }
 
     /**
-     * 验证 PEKS/HMAC 陷门只匹配同一规范化关键词。
+     * 验证 PEKS 陷门只匹配同一规范化关键词。
      */
     public void testPeksTrapdoorMatchesOnlySameKeyword() throws Exception {
-        SecretKey peksKey = PEKSUtil.generateKey();
+        KeyPair peksKeyPair = PEKSUtil.generateKeyPair();
 
         // encrypt 和 getTrapdoor 都会做 trim + lower-case，因此 Secret 与 secret 应该匹配。
-        byte[] peksCiphertext = PEKSUtil.encrypt(peksKey, "Secret");
-        byte[] trapdoor = PEKSUtil.getTrapdoor(peksKey, "secret");
-        byte[] wrongTrapdoor = PEKSUtil.getTrapdoor(peksKey, "wrong");
+        byte[] peksCiphertext = PEKSUtil.encrypt(peksKeyPair.getPublic(), "Secret");
+        byte[] trapdoor = PEKSUtil.getTrapdoor(peksKeyPair.getPrivate(), "secret");
+        byte[] wrongTrapdoor = PEKSUtil.getTrapdoor(peksKeyPair.getPrivate(), "wrong");
 
         assertTrue(PEKSUtil.test(peksCiphertext, trapdoor));
         assertFalse(PEKSUtil.test(peksCiphertext, wrongTrapdoor));
+    }
+
+    /**
+     * 验证 PEKS 公私钥持久化为字节后仍能恢复并完成搜索匹配。
+     */
+    public void testPeksKeyPairCanBeRestoredFromEncodedBytes() throws Exception {
+        KeyPair peksKeyPair = PEKSUtil.generateKeyPair();
+
+        byte[] peksCiphertext = PEKSUtil.encrypt(
+                PEKSUtil.getPublicKeyFromBytes(peksKeyPair.getPublic().getEncoded()),
+                "restore"
+        );
+        byte[] trapdoor = PEKSUtil.getTrapdoor(
+                PEKSUtil.getPrivateKeyFromBytes(peksKeyPair.getPrivate().getEncoded()),
+                "restore"
+        );
+
+        assertTrue(PEKSUtil.test(peksCiphertext, trapdoor));
     }
 
     /**

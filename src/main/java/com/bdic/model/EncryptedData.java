@@ -27,7 +27,7 @@ public class EncryptedData implements Serializable {
     private byte[] encryptedKeywordMetadata;
     /** 用 DES 加密后的文档正文或二进制内容。 */
     private byte[] encryptedContent;
-    /** 用 PEKS/HMAC 生成的可搜索关键词密文集合。 */
+    /** 用 PEKS 公钥生成的可搜索关键词密文集合。 */
     private List<byte[]> peksCiphertexts;
 
     /**

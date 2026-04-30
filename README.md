@@ -171,16 +171,16 @@ src/test/java/com/bdic
 ### `crypto` 包：加密相关逻辑
 
 - `ClientKeyManager`
-  - 为每个用户在本地生成或加载密钥。
+  - 为每个用户在本地生成或加载 DES 密钥和 PEKS 搜索公私钥。
   - 密钥默认保存在 `client-keys/` 下，不应该提交到 Git。
 
 - `DESUtil`
   - 对文档正文和关键词元数据做对称加密/解密。
 
 - `PEKSUtil`
-  - 将关键词转换成可搜索密文。
-  - 将搜索词转换成 trapdoor。
-  - 服务端用 trapdoor 和密文索引做匹配。
+  - 用搜索公钥将关键词转换成可搜索密文。
+  - 用搜索私钥将搜索词转换成 trapdoor。
+  - 服务端用 `test(ciphertext, trapdoor)` 判断密文索引是否命中。
 
 - `PasswordUtil`
   - 处理密码盐值和密码哈希。
@@ -287,7 +287,7 @@ DocumentOperationService 读取文件并提取关键词
 DESUtil 加密正文
         │
         ▼
-PEKSUtil 加密关键词并生成可搜索索引
+PEKSUtil 用搜索公钥加密关键词并生成可搜索索引
         │
         ▼
 DocumentServiceClient 发送 UPLOAD
@@ -313,13 +313,13 @@ Server 调用 EncryptedDataRepository 写入数据库
 SearchPanelController 读取搜索框
         │
         ▼
-PEKSUtil 生成 trapdoor
+PEKSUtil 用搜索私钥生成 trapdoor
         │
         ▼
 DocumentServiceClient 发送 SEARCH
         │
         ▼
-Server 在 keyword_index 中匹配
+Server 对 keyword_index 执行 PEKS 测试
         │
         ▼
 客户端渲染命中文档和预览
@@ -571,16 +571,17 @@ mvn package
 
 ### 4. 为什么搜索还能命中
 
-上传时客户端会把关键词转换为 PEKS 密文索引。搜索时客户端把搜索词转换为 trapdoor。服务端用 trapdoor 和索引做匹配，因此可以判断是否命中。
+上传时客户端会用 PEKS 搜索公钥把关键词转换为密文索引。搜索时客户端用 PEKS 搜索私钥把搜索词转换为 trapdoor。服务端用 trapdoor 和索引执行 PEKS 测试，因此可以判断是否命中。
 
 ### 5. `client-keys/` 目录是什么
 
-这是客户端为用户保存本地密钥的目录。它决定了你能否解密自己上传的文档，不要提交到 Git，也不要随意删除。
+这是客户端为用户保存本地 DES 密钥和 PEKS 私钥的目录。它决定了你能否解密自己上传的文档、生成可命中索引的 trapdoor，不要提交到 Git，也不要随意删除。
 
 ## 已知边界
 
 - Java 对象流适合教学和内网实验，开放网络环境建议换成更标准的协议和序列化格式。
 - 当前证书是开发用途，生产环境需要替换证书和密钥管理方案。
+- 当前 `PEKSUtil` 使用纯 JDK 的 RSA trapdoor permutation 表达 PEKS 公钥、私钥、trapdoor、测试流程；生产级标准 PEKS 通常需要 JPBC 等双线性对库和完整安全审计。
 - 本项目强调链路完整性和可理解性，不等同于经过安全审计的生产级加密系统。
 - 大文件上传能力受数据库、内存和网络配置共同影响。
 

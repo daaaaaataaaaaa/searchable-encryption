@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -71,17 +72,17 @@ public class DocumentOperationService {
     /**
      * 根据上传内容生成可发送到服务端的加密文档实体。
      */
-    public EncryptedData buildEncryptedData(String docId, UploadContent uploadContent, String descriptionInput, SecretKey desKey, SecretKey peksKey) throws Exception {
+    public EncryptedData buildEncryptedData(String docId, UploadContent uploadContent, String descriptionInput, SecretKey desKey, PublicKey peksPublicKey) throws Exception {
         List<String> keywords = resolveKeywords(descriptionInput, uploadContent);
         if (keywords.isEmpty()) {
             throw new IllegalArgumentException("No searchable keywords were found for " + uploadContent.fileName());
         }
 
-        // 正文用 DES 加密，关键词用 PEKS/HMAC 转成可搜索密文。
+        // 正文用 DES 加密，关键词用 PEKS 公钥转成可搜索密文。
         byte[] encryptedContent = DESUtil.encrypt(uploadContent.originalContent(), desKey);
         List<byte[]> peksCiphertexts = new ArrayList<>();
         for (String keyword : buildSearchableTokens(keywords)) {
-            peksCiphertexts.add(PEKSUtil.encrypt(peksKey, keyword));
+            peksCiphertexts.add(PEKSUtil.encrypt(peksPublicKey, keyword));
         }
 
         return new EncryptedData(
@@ -101,7 +102,7 @@ public class DocumentOperationService {
      *
      * <p>优先从加密关键词元数据中恢复原关键词；旧文档缺少元数据时会请用户手动输入。</p>
      */
-    public EncryptedData rebuildIndex(EncryptedData data, SecretKey desKey, SecretKey peksKey, Component parent) throws Exception {
+    public EncryptedData rebuildIndex(EncryptedData data, SecretKey desKey, PublicKey peksPublicKey, Component parent) throws Exception {
         String[] originalKeywords = resolveOriginalKeywords(data, desKey, parent);
         if (originalKeywords == null || originalKeywords.length == 0) {
             throw new IllegalStateException("No keywords available for reindexing.");
@@ -110,7 +111,7 @@ public class DocumentOperationService {
         List<byte[]> rebuiltCiphertexts = new ArrayList<>();
         // 重建时沿用上传时的 token 扩展规则，保证前缀搜索能力一致。
         for (String token : buildSearchableTokens(originalKeywords)) {
-            rebuiltCiphertexts.add(PEKSUtil.encrypt(peksKey, token));
+            rebuiltCiphertexts.add(PEKSUtil.encrypt(peksPublicKey, token));
         }
         data.setPeksCiphertexts(rebuiltCiphertexts);
         data.setEncryptedKeywordMetadata(encryptKeywordMetadata(originalKeywords, desKey));

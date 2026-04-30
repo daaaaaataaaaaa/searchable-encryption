@@ -463,7 +463,7 @@ public class DocumentsPanelController {
      */
     private ServerResponse rebuildDocumentIndexById(String docId) throws Exception {
         EncryptedData data = downloadDocumentById(docId);
-        EncryptedData rebuilt = operationService.rebuildIndex(data, keyBundle.desKey(), keyBundle.peksKey(), owner);
+        EncryptedData rebuilt = operationService.rebuildIndex(data, keyBundle.desKey(), keyBundle.peksPublicKey(), owner);
         return serviceClient.upload(rebuilt);
     }
 

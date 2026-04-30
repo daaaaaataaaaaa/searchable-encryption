@@ -161,8 +161,8 @@ public class SearchPanelController {
             @Override
             protected SearchTaskResult doInBackground() {
                 try {
-                    // 关键词先在客户端用搜索密钥变成陷门，服务端只拿陷门做密文匹配。
-                    byte[] trapdoor = PEKSUtil.getTrapdoor(keyBundle.peksKey(), keyword);
+                    // 关键词先在客户端用搜索私钥变成陷门，服务端只拿陷门做密文匹配。
+                    byte[] trapdoor = PEKSUtil.getTrapdoor(keyBundle.peksPrivateKey(), keyword);
                     ServerResponse response = serviceClient.search(trapdoor);
                     if (!response.isSuccess()) {
                         return SearchTaskResult.success(Collections.emptyList());

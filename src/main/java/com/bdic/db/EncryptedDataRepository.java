@@ -1,5 +1,6 @@
 package com.bdic.db;
 
+import com.bdic.crypto.PEKSUtil;
 import com.bdic.model.DocumentSummary;
 import com.bdic.model.EncryptedData;
 
@@ -13,9 +14,11 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.HexFormat;
+import java.util.Set;
 
 /**
  * 加密文档仓储。
@@ -114,30 +117,31 @@ public class EncryptedDataRepository {
     public List<EncryptedData> searchByTrapdoor(String username, byte[] trapdoor) {
         //noinspection SqlResolve,SqlNoDataSourceInspection
         String searchSql = """
-            SELECT d.doc_id AS storage_doc_id
+            SELECT d.doc_id AS storage_doc_id,
+                   k.peks_ciphertext
             FROM documents d
             JOIN keyword_index k ON d.doc_id = k.doc_id
             WHERE d.owner_username = ?
-              AND k.peks_ciphertext = ?
-            GROUP BY d.doc_id, d.created_at, d.display_doc_id
-            ORDER BY d.created_at DESC, d.display_doc_id ASC
+            ORDER BY d.created_at DESC, d.display_doc_id ASC, k.id ASC
             """;
-        List<String> matchedStorageDocIds = new ArrayList<>();
+        Set<String> matchedStorageDocIds = new LinkedHashSet<>();
 
         try (Connection connection = databaseManager.getConnection();
              PreparedStatement statement = connection.prepareStatement(searchSql)) {
-            // 服务端只拿陷门和索引密文做字节相等匹配，不需要解开明文关键词。
+            // 服务端只拿陷门和索引密文执行 PEKS 测试，不需要解开明文关键词。
             statement.setString(1, username);
-            statement.setBytes(2, trapdoor);
 
             try (ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
-                    matchedStorageDocIds.add(resultSet.getString("storage_doc_id"));
+                    byte[] peksCiphertext = resultSet.getBytes("peks_ciphertext");
+                    if (PEKSUtil.test(peksCiphertext, trapdoor)) {
+                        matchedStorageDocIds.add(resultSet.getString("storage_doc_id"));
+                    }
                 }
             }
 
             // 搜索阶段按内部 ID 二次加载结果，便于控制是否携带大体积正文。
-            return loadDocumentsByStorageIds(connection, username, matchedStorageDocIds, true);
+            return loadDocumentsByStorageIds(connection, username, new ArrayList<>(matchedStorageDocIds), true);
         } catch (SQLException e) {
             throw new RuntimeException("Failed to search encrypted documents", e);
         }

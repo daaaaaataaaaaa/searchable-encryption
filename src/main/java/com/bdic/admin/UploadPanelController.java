@@ -309,7 +309,7 @@ public class UploadPanelController {
      * 构建单个加密文档并发送给服务端。
      */
     private ServerResponse uploadSingleDocument(String docId, DocumentOperationService.UploadContent uploadContent, String descriptionInput) throws Exception {
-        EncryptedData data = operationService.buildEncryptedData(docId, uploadContent, descriptionInput, keyBundle.desKey(), keyBundle.peksKey());
+        EncryptedData data = operationService.buildEncryptedData(docId, uploadContent, descriptionInput, keyBundle.desKey(), keyBundle.peksPublicKey());
         return serviceClient.upload(data);
     }
 

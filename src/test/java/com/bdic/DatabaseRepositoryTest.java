@@ -7,7 +7,8 @@ import com.bdic.model.EncryptedData;
 import com.mysql.cj.jdbc.AbandonedConnectionCleanupThread;
 import junit.framework.TestCase;
 
-import javax.crypto.SecretKey;
+import java.security.KeyPair;
+import java.security.PublicKey;
 import java.sql.Connection;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -69,19 +70,19 @@ public class DatabaseRepositoryTest extends TestCase {
                 );
             }
 
-            SecretKey peksKey = PEKSUtil.generateKey();
+            KeyPair peksKeyPair = PEKSUtil.generateKeyPair();
 
             // 构造三份测试文档：两份文本、一份图片类二进制文档。
             EncryptedData firstDocument = new EncryptedData(
                     "doc-1",
                     "encrypted-1".getBytes(),
-                    encryptKeywords(peksKey, "alpha", "beta")
+                    encryptKeywords(peksKeyPair.getPublic(), "alpha", "beta")
             );
 
             EncryptedData secondDocument = new EncryptedData(
                     "doc-2",
                     "encrypted-2".getBytes(),
-                    encryptKeywords(peksKey, "gamma")
+                    encryptKeywords(peksKeyPair.getPublic(), "gamma")
             );
 
             EncryptedData binaryDocument = new EncryptedData(
@@ -92,7 +93,7 @@ public class DatabaseRepositoryTest extends TestCase {
                     3,
                     null,
                     new byte[]{0x01, 0x02, 0x03},
-                    encryptKeywords(peksKey, "screenshot")
+                    encryptKeywords(peksKeyPair.getPublic(), "screenshot")
             );
 
             repository.save(ownerUsername, firstDocument);
@@ -100,11 +101,11 @@ public class DatabaseRepositoryTest extends TestCase {
             repository.save(ownerUsername, binaryDocument);
 
             // 分别验证完整关键词、前缀关键词和图片关键词搜索。
-            byte[] trapdoor = PEKSUtil.getTrapdoor(peksKey, "alpha");
+            byte[] trapdoor = PEKSUtil.getTrapdoor(peksKeyPair.getPrivate(), "alpha");
             List<EncryptedData> searchResults = repository.searchByTrapdoor(ownerUsername, trapdoor);
-            byte[] prefixTrapdoor = PEKSUtil.getTrapdoor(peksKey, "alp");
+            byte[] prefixTrapdoor = PEKSUtil.getTrapdoor(peksKeyPair.getPrivate(), "alp");
             List<EncryptedData> prefixSearchResults = repository.searchByTrapdoor(ownerUsername, prefixTrapdoor);
-            byte[] imageTrapdoor = PEKSUtil.getTrapdoor(peksKey, "screenshot");
+            byte[] imageTrapdoor = PEKSUtil.getTrapdoor(peksKeyPair.getPrivate(), "screenshot");
             List<EncryptedData> imageSearchResults = repository.searchByTrapdoor(ownerUsername, imageTrapdoor);
 
             assertEquals(1, searchResults.size());
@@ -124,7 +125,7 @@ public class DatabaseRepositoryTest extends TestCase {
     /**
      * 按生产代码同样的前缀扩展规则生成关键词密文。
      */
-    private static List<byte[]> encryptKeywords(SecretKey peksKey, String... keywords) throws Exception {
+    private static List<byte[]> encryptKeywords(PublicKey peksPublicKey, String... keywords) throws Exception {
         Set<String> tokens = new LinkedHashSet<>();
         for (String keyword : keywords) {
             if (keyword == null || keyword.isBlank()) {
@@ -145,8 +146,8 @@ public class DatabaseRepositoryTest extends TestCase {
 
         List<byte[]> encryptedKeywords = new ArrayList<>();
         for (String token : tokens) {
-            // 服务端搜索时比较的是这些 HMAC 字节和查询陷门。
-            encryptedKeywords.add(PEKSUtil.encrypt(peksKey, token));
+            // 服务端搜索时用查询陷门测试这些 PEKS 密文。
+            encryptedKeywords.add(PEKSUtil.encrypt(peksPublicKey, token));
         }
         return encryptedKeywords;
     }
