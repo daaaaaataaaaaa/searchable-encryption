@@ -294,12 +294,26 @@ public class AdminClientApp extends JFrame {
      * 注销当前会话并退出程序。
      */
     private void logoutAndExit(boolean showDialog) {
+        boolean forceExit = false;
         if (busyStateManager != null && busyStateManager.isBusy()) {
-            JOptionPane.showMessageDialog(this, "An operation is still in progress. Please wait for it to finish.", "Warning", JOptionPane.WARNING_MESSAGE);
-            return;
+            Object[] options = {"Continue Waiting", "Force Exit"};
+            int choice = JOptionPane.showOptionDialog(
+                    this,
+                    "An operation is still in progress.\nForce exiting will interrupt the current task. Continue?",
+                    "Operation In Progress",
+                    JOptionPane.DEFAULT_OPTION,
+                    JOptionPane.WARNING_MESSAGE,
+                    null,
+                    options,
+                    options[0]
+            );
+            if (choice != 1) {
+                return;
+            }
+            forceExit = true;
         }
         try {
-            if (serviceClient != null) {
+            if (!forceExit && serviceClient != null) {
                 // 即使服务端注销失败，finally 中也会关闭本地连接并退出。
                 ServerResponse response = serviceClient.logout();
                 if (showDialog) {

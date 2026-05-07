@@ -39,4 +39,28 @@ public class KeywordExtractorTest extends TestCase {
         assertTrue(keywords.contains("\u641c\u7d22"));
         assertTrue(keywords.contains("\u52a0\u5bc6"));
     }
+
+    /**
+     * 验证可从 JSON 的 Searchable_Keywords 数组中提取完整关键词值。
+     */
+    public void testExtractJsonKeywordFieldsFromArrayValues() {
+        String json = "[{\"Searchable_Keywords\":[\"PROTOCOL:udp\",\"SERVICE:-\",\"STATE:INT\"]}]";
+
+        List<String> keywords = KeywordExtractor.extractJsonKeywordFields(json);
+
+        assertTrue(keywords.contains("protocol:udp"));
+        assertTrue(keywords.contains("service:-"));
+        assertTrue(keywords.contains("state:int"));
+    }
+
+    /**
+     * 验证 JSON 的 keyword 字符串支持逗号分隔并自动规范化。
+     */
+    public void testExtractJsonKeywordFieldsFromStringValue() {
+        String json = "{\"keyword\":\" Alert , Malware,alert \"}";
+
+        List<String> keywords = KeywordExtractor.extractJsonKeywordFields(json);
+
+        assertEquals(Arrays.asList("alert", "malware"), keywords);
+    }
 }

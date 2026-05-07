@@ -18,6 +18,17 @@ public final class KeywordExtractor {
 
     /** 匹配连续字母或数字，包括中文、日文、韩文等 Unicode 字符。 */
     private static final Pattern WORD_PATTERN = Pattern.compile("[\\p{L}\\p{N}]+");
+    /** 匹配 JSON 中 keyword/keywords/Searchable_Keywords 这类字段里的数组值。 */
+    private static final Pattern JSON_KEYWORD_ARRAY_PATTERN = Pattern.compile(
+            "\"(?i:(?:searchable_)?keywords?|keyword)\"\\s*:\\s*\\[(.*?)]",
+            Pattern.DOTALL
+    );
+    /** 匹配 JSON 中 keyword/keywords/Searchable_Keywords 这类字段里的字符串值。 */
+    private static final Pattern JSON_KEYWORD_STRING_PATTERN = Pattern.compile(
+            "\"(?i:(?:searchable_)?keywords?|keyword)\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\""
+    );
+    /** 匹配 JSON 数组中的字符串元素。 */
+    private static final Pattern JSON_STRING_ITEM_PATTERN = Pattern.compile("\"((?:\\\\.|[^\"\\\\])*)\"");
     /** 过滤过短 token，避免大量无意义的一字词进入索引。 */
     private static final int MIN_TOKEN_LENGTH = 2;
 
@@ -86,6 +97,30 @@ public final class KeywordExtractor {
     }
 
     /**
+     * 从 JSON 文本中定向提取关键词字段，支持 keyword/keywords/Searchable_Keywords。
+     */
+    public static List<String> extractJsonKeywordFields(String jsonText) {
+        Set<String> keywords = new LinkedHashSet<>();
+        if (jsonText == null || jsonText.isBlank()) {
+            return new ArrayList<>();
+        }
+
+        Matcher arrayMatcher = JSON_KEYWORD_ARRAY_PATTERN.matcher(jsonText);
+        while (arrayMatcher.find()) {
+            Matcher itemMatcher = JSON_STRING_ITEM_PATTERN.matcher(arrayMatcher.group(1));
+            while (itemMatcher.find()) {
+                addKeyword(keywords, decodeJsonString(itemMatcher.group(1)));
+            }
+        }
+
+        Matcher stringMatcher = JSON_KEYWORD_STRING_PATTERN.matcher(jsonText);
+        while (stringMatcher.find()) {
+            keywords.addAll(extractCommaSeparated(decodeJsonString(stringMatcher.group(1))));
+        }
+        return new ArrayList<>(keywords);
+    }
+
+    /**
      * 规范化并加入集合；返回值表示该关键词是否足够长且被接受。
      */
     private static boolean addKeyword(Set<String> keywords, String rawKeyword) {
@@ -105,6 +140,65 @@ public final class KeywordExtractor {
             return "";
         }
         return rawKeyword.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * 处理 JSON 字符串里的常见转义序列，保证关键词可读且可搜索。
+     */
+    private static String decodeJsonString(String rawValue) {
+        if (rawValue == null || rawValue.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder decoded = new StringBuilder(rawValue.length());
+        for (int i = 0; i < rawValue.length(); i++) {
+            char current = rawValue.charAt(i);
+            if (current != '\\' || i + 1 >= rawValue.length()) {
+                decoded.append(current);
+                continue;
+            }
+
+            char next = rawValue.charAt(++i);
+            switch (next) {
+                case '"':
+                case '\\':
+                case '/':
+                    decoded.append(next);
+                    break;
+                case 'b':
+                    decoded.append('\b');
+                    break;
+                case 'f':
+                    decoded.append('\f');
+                    break;
+                case 'n':
+                    decoded.append('\n');
+                    break;
+                case 'r':
+                    decoded.append('\r');
+                    break;
+                case 't':
+                    decoded.append('\t');
+                    break;
+                case 'u':
+                    if (i + 4 < rawValue.length()) {
+                        String hex = rawValue.substring(i + 1, i + 5);
+                        try {
+                            decoded.append((char) Integer.parseInt(hex, 16));
+                            i += 4;
+                            break;
+                        } catch (NumberFormatException ignored) {
+                            // 回退到原样保留，避免异常中断抽取流程。
+                        }
+                    }
+                    decoded.append("\\u");
+                    break;
+                default:
+                    decoded.append(next);
+                    break;
+            }
+        }
+        return decoded.toString();
     }
 
     /**

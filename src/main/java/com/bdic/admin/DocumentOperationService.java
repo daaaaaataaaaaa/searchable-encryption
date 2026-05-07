@@ -208,17 +208,34 @@ public class DocumentOperationService {
      */
     private List<String> resolveKeywords(String descriptionInput, UploadContent uploadContent) {
         Set<String> keywords = new LinkedHashSet<>();
+        boolean jsonUpload = isJsonUpload(uploadContent);
         // 用户描述权重最高，随后补充文件名，最后补充正文自动抽取结果。
         keywords.addAll(KeywordExtractor.extractWords(descriptionInput));
         keywords.addAll(KeywordExtractor.extractFileNameKeywords(uploadContent.fileName()));
-        if (uploadContent.automaticTextKeywordsEnabled() && uploadContent.extractedText() != null && !uploadContent.extractedText().isBlank()) {
+        if (jsonUpload) {
+            // JSON 证据文件仅读取显式关键词字段，避免整份 JSON 全文分词带来大量噪声 token。
+            String jsonText = new String(uploadContent.originalContent(), StandardCharsets.UTF_8);
+            keywords.addAll(KeywordExtractor.extractJsonKeywordFields(jsonText));
+        }
+        if (!jsonUpload && uploadContent.automaticTextKeywordsEnabled() && uploadContent.extractedText() != null && !uploadContent.extractedText().isBlank()) {
             keywords.addAll(KeywordExtractor.extractWords(uploadContent.extractedText()));
-        } else if (uploadContent.automaticTextKeywordsEnabled() && isTextDocument(uploadContent.mediaType())) {
+        } else if (!jsonUpload && uploadContent.automaticTextKeywordsEnabled() && isTextDocument(uploadContent.mediaType())) {
             // 文本抽取器没有返回内容时，纯文本文件可以直接按 UTF-8 回退读取。
             String text = new String(uploadContent.originalContent(), StandardCharsets.UTF_8);
             keywords.addAll(KeywordExtractor.extractWords(text));
         }
         return new ArrayList<>(keywords);
+    }
+
+    /**
+     * 判断上传内容是否应按 JSON 处理。
+     */
+    private boolean isJsonUpload(UploadContent uploadContent) {
+        String mimeType = uploadContent.mimeType() == null ? "" : uploadContent.mimeType().toLowerCase(Locale.ROOT);
+        String fileName = uploadContent.fileName() == null ? "" : uploadContent.fileName().toLowerCase(Locale.ROOT);
+        return "application/json".equals(mimeType)
+                || mimeType.endsWith("+json")
+                || fileName.endsWith(".json");
     }
 
     /**
